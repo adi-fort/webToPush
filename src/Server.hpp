@@ -17,6 +17,7 @@
 class Server
 {
 	private:
+
 		int                 _server_fd;
 		struct sockaddr_in  _address;
 		int                 _port;

@@ -111,6 +111,13 @@ void ConfigParser::parseLocationBlock(const std::vector<std::string>& lines, siz
             		iss >> value;
             		route.default_file = trim(value);
         	}
+		else if (key == "http_redirection") 
+		{
+    			std::string value;
+    			iss >> value;
+    			route.http_redirection = trim(value);
+		}
+
     	}
 
     	server.routes[path] = route;

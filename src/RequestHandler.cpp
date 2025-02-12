@@ -81,9 +81,34 @@ std::string RequestHandler::handleRequest(const HttpRequest& request, int client
 	if (request.path.empty()) 
         	return generateErrorResponse(500);
 
-    	std::string response;
+    	//
+	const RouteConfig* routeConfig = findRouteConfig(*serverConfig, request.path);
 
-    	if (request.path == "/upload" && request.method == "POST") 
+    	if (routeConfig) 
+    	{
+        	if (!routeConfig->http_redirection.empty()) 
+        	{
+            		return "HTTP/1.1 301 Moved Permanently\r\n"
+                   	"Location: " + routeConfig->http_redirection + "\r\n"
+                   	"Content-Length: 0\r\n\r\n";
+        	}
+    	}	
+	//	
+	std::string response;
+	
+	if (request.method == "POST" && request.headers.find("Content-Type") != request.headers.end()) 
+    	{
+        	if (request.headers.at("Content-Type") == "application/x-www-form-urlencoded") 
+        	{
+            		std::string body(request.body.begin(), request.body.end());
+            		if (body.find("_method=DELETE") != std::string::npos) 
+            		{
+                		return handleDeleteRequest(request);
+            		}
+        	}
+    	}
+    	
+	if (request.path == "/upload" && request.method == "POST") 
 	{
         	response = handleUploadRequest(client_fd, request);
 	}
@@ -124,6 +149,36 @@ std::string RequestHandler::handleRequest(const HttpRequest& request, int client
 
 	return response;
 }
+
+
+std::string RequestHandler::decodeUrl(const std::string &url)
+{
+    	std::string result;
+    	char hex[3] = {0};
+    	for (size_t i = 0; i < url.length(); i++) 
+    	{
+        	if (url[i] == '%') 
+        	{
+            		if (i + 2 < url.length()) 
+            		{
+                		hex[0] = url[i + 1];
+                		hex[1] = url[i + 2];
+                		result += static_cast<char>(strtol(hex, nullptr, 16));
+                		i += 2;
+            		}
+        	} 
+        	else if (url[i] == '+') 
+        	{
+            		result += ' ';
+        	} 
+        	else 
+        	{
+            		result += url[i];
+        	}
+    	}
+    	return result;
+}
+
 
 
 
@@ -256,7 +311,7 @@ std::string RequestHandler::handlePostRequest(const HttpRequest& request)
 
 ByteVector::const_iterator findBoundary(const ByteVector& body, const std::string& boundary) 
 {
-    return std::search(body.begin(), body.end(), boundary.begin(), boundary.end());
+    	return std::search(body.begin(), body.end(), boundary.begin(), boundary.end());
 }
 
 
@@ -273,7 +328,7 @@ FileInfo extractFileInfo(const ByteVector& body, const std::string& boundary)
     	ByteVector::const_iterator filename_pos = findBoundary(body, "filename=\"");
     	if (filename_pos == body.end()) 
 	{
-        	throw std::runtime_error("Filename not dound!");
+        	throw std::runtime_error("Filename not found!");
     	}
     	filename_pos += 10;
 
@@ -377,27 +432,29 @@ std::string RequestHandler::handleUploadRequest(int client_fd, const HttpRequest
 
 std::string RequestHandler::listUploadedFiles() 
 {
-    	std::string response = "HTTP/1.1 200 OK\r\n";
-    	response += "Content-Type: text/html\r\n";
-    	response += "Content-Length: 200\r\n";
-    	response += "\r\n";
-    
-    	response += "<html><body>";
-    	response += "<h1>Uploaded Files</h1>";
+    std::string response = "HTTP/1.1 200 OK\r\n";
+    response += "Content-Type: text/html\r\n";
 
-    	std::vector<std::string> files = getUploadedFiles();
-    	for (const auto& file : files) 
-	{
-        	response += "<a href='/uploads/" + file + "'>" + file + "</a><br>";
-        	response += "<form action='/delete/" + file + "' method='POST'>";
-        	response += "<input type='submit' value='Delete this file'>";
-        	response += "</form><br>";
-    	}
+    std::string body = "<html><body><h1>Uploaded Files</h1>";
 
-    	response += "</body></html>";
-    	return response;
+    std::vector<std::string> files = getUploadedFiles();
+    for (const auto& file : files) 
+    {
+        body += "<a href='/uploads/" + file + "'>" + file + "</a><br>";
+        body += "<form action='/uploads/" + file + "' method='POST'>";
+        body += "<input type='hidden' name='_method' value='DELETE'>";
+        body += "<input type='submit' value='Delete this file'>";
+        body += "</form><br>";
+    }
+
+    body += "</body></html>";
+
+    response += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    response += "\r\n";
+    response += body;
+
+    return response;
 }
-
 
 
 std::vector<std::string> RequestHandler::getUploadedFiles() 
@@ -410,53 +467,39 @@ std::vector<std::string> RequestHandler::getUploadedFiles()
     	return files;
 }
 
-
 std::string RequestHandler::handleDeleteRequest(const HttpRequest& request) 
 {
-    if (request.path.find("/upload") != 0) {
-        return "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
-    }
+    	std::string file_path = request.path;
 
-    std::cout << "Handling DELETE request for path: " << request.path << std::endl;
-    
-    std::string base_path = "/home/andrea/Scrivania/lastweb-main/uploads";
-    std::string file_path = base_path + request.path.substr(8);
-
-    if (!std::filesystem::exists(file_path)) {
-        std::cerr << "ERROR: File to delete not found: " << file_path << std::endl;
-        return "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
-    }
-
-    if (!std::filesystem::remove(file_path)) {
-        std::cerr << "ERROR: Failed to remove file: " << file_path << std::endl;
-        return "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
-    }
-
-    std::cout << "File deleted successfully: " << file_path << std::endl;
-
-    // Risposta di successo
-    std::string response = "HTTP/1.1 200 OK\r\n";
-    response += "Content-Length: 19\r\n";
-    response += "Content-Type: text/plain\r\n\r\n";
-    response += "File deleted successfully";
-    return response;
-}
-
-/*
-std::string RequestHandler::handleDeleteAllRequest(const HttpRequest& request) 
-{
-    	std::string response = "HTTP/1.1 200 OK\r\n";
-    	response += "Content-Type: text/plain\r\n\r\n";
-
-    	for (const auto& entry : std::filesystem::directory_iterator("uploads")) 
-	{
-        	std::remove(entry.path().c_str());
+    	if (file_path.find("/uploads/") != 0) 
+    	{
+        	return "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
     	}
 
-    	response += "All files deleted successfully!";
-    	return response;
-}*/
+    	std::string filename = file_path.substr(9);
+    	filename = decodeUrl(filename);
 
+    	std::string full_path = "/home/andrea/Scrivania/lastweb-main/uploads/" + filename;
+
+    	if (!std::filesystem::exists(full_path)) 
+    	{
+        	std::cerr << "ERROR: File to delete not found: " << full_path << std::endl;
+        	return "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+    	}
+
+    	if (!std::filesystem::remove(full_path)) 
+    	{
+        	std::cerr << "ERROR: Failed to remove file: " << full_path << std::endl;
+        	return "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\n\r\n";
+    	}
+
+    	std::string message = "File deleted successfully";
+	std::string response = "HTTP/1.1 200 OK\r\n";
+	response += "Content-Length: " + std::to_string(message.size()) + "\r\n";
+	response += "Content-Type: text/plain\r\n\r\n";
+	response += message;
+    	return response;
+}
 
 
 std::string RequestHandler::serveStaticFile(const std::string& path) 
@@ -532,10 +575,7 @@ std::string RequestHandler::generateErrorResponse(int errorCode)
     	if (!file.is_open()) 
 	{
         	std::string errorMessage = std::to_string(errorCode) + " Error";
-        	return "HTTP/1.1 " + std::to_string(errorCode) + " Error\r\n" +
-               "Content-Length: " + std::to_string(errorMessage.size()) + "\r\n" +
-               "Content-Type: text/plain\r\n\r\n" +
-               errorMessage;
+        	return "HTTP/1.1 " + std::to_string(errorCode) + " Error\r\n" + "Content-Length: " + std::to_string(errorMessage.size()) + "\r\n" + "Content-Type: text/plain\r\n\r\n" + errorMessage;
     	}
 
     	std::ostringstream file_content;
@@ -546,5 +586,5 @@ std::string RequestHandler::generateErrorResponse(int errorCode)
     	response += "Content-Type: text/html\r\n\r\n";
     	response += file_content.str();
    
-	 return response;
+	return response;
 }

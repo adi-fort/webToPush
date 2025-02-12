@@ -24,6 +24,8 @@ class RequestHandler
 		
 		void logServerConfig() const;
 		
+		std::string 	decodeUrl(const std::string& url);
+
 		std::string 	handleDeleteAllRequest(const HttpRequest& request);
 
 		const ServerConfig* findServerConfig(const std::string& host, int port) const;
@@ -35,6 +37,7 @@ class RequestHandler
         	std::map<std::string, ServerConfig> server_configs;
 
 		std::string 	handlePostRequest(const HttpRequest& request);
+		
 		std::string 	handleDeleteRequest(const HttpRequest& request);
     		
 		std::string 	serveStaticFile(const std::string& path);
@@ -54,7 +57,7 @@ class RequestHandler
 		std::string			listUploadedFiles();
 
 		
-		void				logRequest(const HttpRequest& request, const std::string& response);
+		void	logRequest(const HttpRequest& request, const std::string& response);
 
 		std::vector<char*>		buildCgi(const HttpRequest& request);
 };

@@ -7,19 +7,21 @@
 
 struct RouteConfig 
 {
-    	std::string root;
+    	std::string 				root;
     	
-	std::vector<std::string> methods;
+	std::vector<std::string> 		methods;
     	
-	std::string default_file;
+	std::string 				default_file;
     	
-	bool directory_listing;
+	bool 					directory_listing;
     	
-	std::string upload_path;
+	std::string 				upload_path;
     	
-	std::map<std::string, std::string> error_pages;
+	std::map<std::string, std::string> 	error_pages;
     	
-	std::map<std::string, std::string> cgi_extensions;
+	std::map<std::string, std::string> 	cgi_extensions;
+
+	std::string				http_redirection;
 };
 
 #endif
