@@ -181,36 +181,96 @@ std::string RequestHandler::decodeUrl(const std::string &url)
 
 
 
+std::string RequestHandler::handleCgiRequest(const HttpRequest& request) {
+    std::string path = request.path;
+    if (path.find("/cgi-bin/") == 0)
+        path = path.substr(9);  
+    
+    std::string script_path = "/var/www/cgi-bin/" + path;
 
-std::string RequestHandler::handleCgiRequest(const HttpRequest& request) 
-{
-    	std::string path = request.path;
-	if (path.find("/cgi-bin/") == 0)
-        	path = path.substr(9);
-    	if (access(("cgi-bin/" + path).c_str(), F_OK) == -1)
-        	return generateErrorResponse(404);
-    	if (access(("cgi-bin/" + path).c_str(), X_OK) == -1)
-        	return generateErrorResponse(403);
-    	FILE* pipe = popen(("cgi-bin/" + path).c_str(), "r");
-    	if (!pipe)
-        	return generateErrorResponse(500);
-    	std::ostringstream output;
-    	char buffer[128];
-    	while (fgets(buffer, sizeof(buffer), pipe) != nullptr) 
+    if (access(script_path.c_str(), F_OK) == -1)
+        return generateErrorResponse(404);
+    
+    if (access(script_path.c_str(), X_OK) == -1)
+        return generateErrorResponse(403);
+
+    int pipe_stdout[2];
+    int pipe_stdin[2];
+
+    if (pipe(pipe_stdout) == -1 || pipe(pipe_stdin) == -1)
+        return generateErrorResponse(500);
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        return generateErrorResponse(500);
+    }
+    else if (pid == 0) {
+        close(pipe_stdout[0]); // Close read end of stdout
+        dup2(pipe_stdout[1], STDOUT_FILENO);
+        close(pipe_stdout[1]); 
+
+        close(pipe_stdin[1]); // Close write end of stdin
+        dup2(pipe_stdin[0], STDIN_FILENO);
+        close(pipe_stdin[0]);
+
+        char *args[] = { const_cast<char*>(script_path.c_str()), NULL };
+	
+	std::vector<std::string> env_strings;
+	env_strings.push_back("REQUEST_METHOD=" + request.method);
+	env_strings.push_back("CONTENT_LENGTH=" + std::to_string(request.body.size()));
+	env_strings.push_back("CONTENT_TYPE=application/x-www-form-urlencoded");
+
+	std::vector<char*> envp;
+	for (size_t i = 0; i < env_strings.size(); ++i) 
 	{
-        	output << buffer;
-    	}
-    	fclose(pipe);
-    	
-	std::string response = "HTTP/1.1 200 OK\r\n";
-    	response += "Content-Type: text/html\r\n";
-    	response += "Content-Length: " + std::to_string(output.str().size()) + "\r\n";
-    	response += "\r\n";
-    	response += output.str();
+    		envp.push_back(const_cast<char*>(env_strings[i].c_str()));
+	}
+	envp.push_back(NULL);
 
-    	return response;
+	execve(script_path.c_str(), args, envp.data());
+	
+        exit(1);
+    }
+    else {
+        close(pipe_stdout[1]);
+        close(pipe_stdin[0]);
+
+        // If the request is POST, write the body to stdin
+        if (request.method == "POST" && !request.body.empty()) {
+            	std::cout << "Inside Post request in CGI\n";
+        std::cout << "DEBUG: Request Method -> " << request.method << std::endl;
+std::cout << "DEBUG: Content-Length -> " << request.body.size() << std::endl;
+std::cout << "DEBUG: Body Data -> " << std::string(request.body.begin(), request.body.end()) << std::endl;
+
+	ssize_t written = write(pipe_stdin[1], request.body.data(), request.body.size());
+    std::cout << "DEBUG: Wrote " << written << " bytes to CGI stdin" << std::endl;
+}
+        close(pipe_stdin[1]); // Close write end of stdin
+
+        char buffer[4096];
+        std::string output;
+        ssize_t bytes_read;
+        while ((bytes_read = read(pipe_stdout[0], buffer, sizeof(buffer))) > 0)
+            output.append(buffer, bytes_read);
+        close(pipe_stdout[0]);
+
+        int status;
+
+	waitpid(pid, &status, 0);
+
+        if (status != 0)
+            return generateErrorResponse(500);
+
+        std::string response = "HTTP/1.1 200 OK\r\n";
+        response += "Content-Length: " + std::to_string(output.size()) + "\r\n";
+        response += "Content-Type: text/html\r\n\r\n";
+        response += output;
+
+        return response;
+    }
 }
 
+/*
 std::vector<char *> RequestHandler::buildCgi(const HttpRequest& request)
 {
 	std::vector<std::string> env_strings;
@@ -243,7 +303,7 @@ std::vector<char *> RequestHandler::buildCgi(const HttpRequest& request)
 
     	return envp;
 }
-
+*/
 
 typedef std::vector<unsigned char> ByteVector;
 
