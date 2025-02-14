@@ -18,9 +18,13 @@ class Server
 {
 	private:
 
-		int                 _server_fd;
-		struct sockaddr_in  _address;
-		int                 _port;
+		std::vector<int>		server_fds;
+		std::vector<sockaddr_in>	server_addresses;	
+
+		//int                 		_server_fd;
+		struct sockaddr_in  		_address;
+		int                 		_port;
+		std::string			_host;
 		
 		std::string extractHost(const std::string& request);
 		std::map<int, HttpRequest> client_requests;

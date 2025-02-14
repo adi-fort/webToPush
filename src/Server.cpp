@@ -4,6 +4,7 @@
 #include "HttpRequest.hpp"
 #include "ConfigParser.hpp"
 #include "RequestHandler.hpp"
+
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -44,78 +45,39 @@ std::map<std::string, std::string> parseHeaders(const std::string &headers)
 	return header_map;
 }
 
-/*
-bool recvDataFromClient(int fd, HttpRequest &request) {
-    char buffer[4096];  // Buffer temporaneo da 4KB
-    int bytes_read = recv(fd, buffer, sizeof(buffer), 0);
 
-    if (bytes_read < 0) {
-        std::cerr << "ERROR: recv() fallito con errore: " << strerror(errno) << std::endl;
-        return false;
-    } 
-    else if (bytes_read == 0) {
-        std::cout << "Client closed the connection." << std::endl;
-        return false;
-    }
+bool parseHttpRequest(HttpRequest &request) 
+{
+    	std::string request_string(request.body.begin(), request.body.end());
 
-    // Aggiungiamo i dati letti al body (anche se sono header per ora)
-    request.body.insert(request.body.end(), buffer, buffer + bytes_read);
-    return true;
-}*/
+    	size_t header_end = request_string.find("\r\n\r\n");
+    	if (header_end == std::string::npos) 
+	{
+        	std::cerr << "ERROR: Header HTTP non completo!" << std::endl;
+        	return false;
+    	}
 
-bool parseHttpRequest(HttpRequest &request) {
-    std::string request_string(request.body.begin(), request.body.end());
+    	std::string headers = request_string.substr(0, header_end);
+    	request.headers = parseHeaders(headers);
 
-    // Trova la fine degli header
-    size_t header_end = request_string.find("\r\n\r\n");
-    if (header_end == std::string::npos) {
-        std::cerr << "ERROR: Header HTTP non completo!" << std::endl;
-        return false;
-    }
+    	if (request.headers.find("Content-Length") != request.headers.end()) 
+	{
+        	request.content_length = std::stoi(request.headers["Content-Length"]);
+    	}
 
-    // Estrarre gli header
-    std::string headers = request_string.substr(0, header_end);
-    request.headers = parseHeaders(headers); // Funzione che estrae header in una mappa
+    	size_t body_start = header_end + 4;
+    	if (body_start < request.body.size()) 
+	{
+        	request.body.erase(request.body.begin(), request.body.begin() + body_start);
+    	} 
+	else 
+	{
+        	request.body.clear();
+    	}
 
-    // Trova Content-Length
-    if (request.headers.find("Content-Length") != request.headers.end()) {
-        request.content_length = std::stoi(request.headers["Content-Length"]);
-    }
-
-    // Inizio del body
-    size_t body_start = header_end + 4;
-    if (body_start < request.body.size()) {
-        request.body.erase(request.body.begin(), request.body.begin() + body_start);
-    } else {
-        request.body.clear();
-    }
-
-    return true;
+    	return true;
 }
 
-/*
-bool recvRemainingBody(int fd, HttpRequest &request) {
-    size_t missing = request.content_length - request.body.size();
-
-    while (request.body.size() < request.content_length) {
-        char buffer[4096];
-        int bytes_read = recv(fd, buffer, std::min(missing, sizeof(buffer)), 0);
-
-        if (bytes_read <= 0) {
-            std::cerr << "ERROR: recv() fallito o connessione chiusa." << std::endl;
-            return false;
-        }
-
-        request.body.insert(request.body.end(), buffer, buffer + bytes_read);
-        missing -= bytes_read;
-
-        // Debug per mostrare il progresso della lettura
-        std::cout << "DEBUG: Bytes letti finora: " << request.body.size() << " / " << request.content_length << std::endl;
-    }
-
-    std::cout << "DEBUG: Lettura completa del body. Byte totali: " << request.body.size() << std::endl;
-    return true;
-}*/
 
 
 std::string vectorToString(const std::vector<unsigned char>& vec) 
@@ -163,71 +125,122 @@ std::string Server::extractHost(const std::string& request)
     return "127.0.0.1:8080";
 }
 
-
 Server::Server(const std::string& configFile) 
 {
     	ConfigParser parser(configFile);
     	std::vector<ServerConfig> parsedConfigs = parser.parse();
+    
     	if (parsedConfigs.empty()) 
-	{
+    	{
         	std::cerr << "Error: No server configurations found in config file!" << std::endl;
         	exit(EXIT_FAILURE);
     	}
-    	_port = parsedConfigs[0].port;
-    	_address.sin_family = AF_INET;
-    	_address.sin_addr.s_addr = INADDR_ANY;
-    	_address.sin_port = htons(_port);
+
     	for (const auto& server : parsedConfigs) 
-	{
-		std::string host = server.host;
-		if (host == "localhost") 
-			host = "127.0.0.1";
-		std::string key = host + ":" + std::to_string(server.port);
-		server_configs[key] = server;
-		server_configs[key] = server;
-    	}
-	for (const auto& entry : server_configs) 
-	{
-    		std::cout << "Key: " << entry.first << " | Port: " << entry.second.port << std::endl;
-	}
-}
-
-
-
-Server::~Server()
-{
-    	if (_server_fd != -1)
     	{
-        	close(_server_fd);
+        	std::string host = server.host;
+        	if (host == "localhost") 
+            		host = "127.0.0.1";
+
+        	_port = server.port;
+        	std::string key = host + ":" + std::to_string(_port);
+        	server_configs[key] = server;
+
+	        int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+        	if (server_fd == -1) 
+        	{
+            		std::cerr << "ERROR: socket() failed for " << host << ":" << _port << std::endl;
+            		continue;
+        	}
+
+        	sockaddr_in address;
+        	address.sin_family = AF_INET;
+       		address.sin_port = htons(_port);
+
+        	if (host == "127.0.0.1") 
+        	{
+            		if (inet_pton(AF_INET, host.c_str(), &address.sin_addr) <= 0) 
+            		{
+               			std::cerr << "ERROR: Invalid IP address " << host << std::endl;
+                		close(server_fd);
+                		continue;
+            		}
+        	}
+        	else
+        	{
+            		address.sin_addr.s_addr = INADDR_ANY;
+        	}
+
+        	server_fds.push_back(server_fd);
+        	server_addresses.push_back(address);
+    	}
+
+    	if (server_fds.empty()) 
+    	{
+        	std::cerr << "Error: No servers could be started!" << std::endl;
+        	exit(EXIT_FAILURE);
     	}
 }
 
+
+Server::~Server() 
+{
+    	for (size_t i = 0; i < server_fds.size(); ++i) 
+    	{
+        	if (server_fds[i] != -1) 
+        	{
+            		close(server_fds[i]);
+        	}
+    	}
+}
 
 
 void Server::init() 
 {
-   	_server_fd = socket(AF_INET, SOCK_STREAM, 0);
-    	if (_server_fd == 0) 
-	{
-        	perror("Socket creation failed");
-        	exit(EXIT_FAILURE);
-    	}
-    	if (bind(_server_fd, (struct sockaddr*)&_address, sizeof(_address)) < 0) 
-	{
-        	perror("Bind failed");
-        	exit(EXIT_FAILURE);
-    	}
-    	if (fcntl(_server_fd, F_SETFL, O_NONBLOCK) == -1) 
-	{
-        	perror("Failed to set non-blocking mode");
-        	exit(EXIT_FAILURE);
-    	}
-    	if (listen(_server_fd, 10) < 0) 
-	{
-        	perror("Listen failed");
-        	exit(EXIT_FAILURE);
+    	for (size_t i = 0; i < server_fds.size(); ++i)
+    	{
+
+        	if (server_fds[i] == -1) 
+        	{
+            		std::cerr << "ERROR: socket() failed for FD: " << server_fds[i] << std::endl;
+            		continue;
+        	}
+
+        	int opt = 1;
+        	if (setsockopt(server_fds[i], SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0)
+        	{
+            		perror(" ERROR: setsockopt() failed");
+            		continue;
+        	}
+
+        	server_addresses[i].sin_family = AF_INET;
+
+        	char ipStr[INET_ADDRSTRLEN];
+        	inet_ntop(AF_INET, &(server_addresses[i].sin_addr), ipStr, INET_ADDRSTRLEN);
+        	std::cout << "Binding to IP: " << ipStr << " on port " << ntohs(server_addresses[i].sin_port) << std::endl;
+
+        	if (bind(server_fds[i], (struct sockaddr*)&server_addresses[i], sizeof(server_addresses[i])) < 0) 
+        	{
+            		perror(" Bind failed");
+            		continue;
+        	}
+
+        	if (fcntl(server_fds[i], F_SETFL, O_NONBLOCK) == -1) 
+        	{
+            		perror(" Failed to set non-blocking mode");
+            		continue;
+        	}
+
+        	if (listen(server_fds[i], SOMAXCONN) < 0) 
+        	{
+            		perror(" Listen failed");
+            		continue;
+        	}
+
+        	std::cout << "Server is now listening on " << ipStr << ":" << ntohs(server_addresses[i].sin_port) << std::endl;
     	}
 }
+
 
 
 void Server::parseHeaders(HttpRequest& request, std::istringstream& request_stream) 
@@ -325,11 +338,22 @@ void Server::parseBody(HttpRequest& request, std::vector<unsigned char>& body)
 
 void Server::run() 
 {
-    	struct pollfd fds[100];
+    	std::cout << "🔄 Entering Server::run()..." << std::endl;
+
+	
+	struct pollfd fds[100];
     	int nfds = 1;
     
-    	fds[0].fd = _server_fd;
-    	fds[0].events = POLLIN;
+    	//fds[0].fd = _server_fd;
+    	
+	for (size_t i = 0; i < server_fds.size(); ++i) 
+	{
+    		fds[i].fd = server_fds[i];
+    		fds[i].events = POLLIN;
+	}
+		nfds = server_fds.size();
+
+	fds[0].events = POLLIN;
 
     	std::cout << "Server is running and listening on port " << _port << std::endl;
 
@@ -345,10 +369,10 @@ void Server::run()
         	{
             		if (fds[i].revents & POLLIN) 
             		{
-                		if (fds[i].fd == _server_fd) 
+                		if (std::find(server_fds.begin(), server_fds.end(), fds[i].fd) != server_fds.end()) 
                 		{
                     			socklen_t addrlen = sizeof(_address);
-                    			int new_socket = accept(_server_fd, reinterpret_cast<struct sockaddr *>(&_address), &addrlen);
+                    			int new_socket = accept(fds[i].fd, reinterpret_cast<struct sockaddr *>(&server_addresses[i]), &addrlen);
                     			if (new_socket < 0)
                         			continue;
 
@@ -449,10 +473,24 @@ void Server::run()
                     			std::string response = handler.handleRequest(request, fds[i].fd);
 
                     			poll(fds, nfds, -1);
-                    			if (fds[i].revents & POLLOUT) 
+                    			/*if (fds[i].revents & POLLOUT) 
 					{
                         			send(fds[i].fd, response.c_str(), response.length(), 0);
-                    			}
+                    			}*/
+					if (fds[i].revents & POLLOUT) 
+					{
+    						ssize_t bytes_sent = send(fds[i].fd, response.c_str(), response.length(), 0);
+    						if (bytes_sent == -1) 
+    						{
+        						std::cerr << "ERROR: send() failed, closing client connection.\n";
+        						close(fds[i].fd);
+        						fds[i].fd = -1;
+    						}
+    						else if (bytes_sent < (ssize_t)response.length()) 
+    						{
+        						std::cerr << "WARNING: send() sent only " << bytes_sent << " bytes out of " << response.length() << ".\n";
+    						}
+					}
 
                     			if (!keep_alive) 
 					{

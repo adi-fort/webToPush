@@ -578,6 +578,12 @@ std::string RequestHandler::serveStaticFile(const std::string& path)
 	
 	std::string fullPath = basePath + path;
 	
+	if (stat(fullPath.c_str(), &buffer) == 0 && S_ISDIR(buffer.st_mode)) 
+	{
+        	std::cout << "DEBUG: Requested path is a directory: " << fullPath << std::endl;
+        	fullPath += "/index.html";
+    	}
+	
 	std::cout << "DEBUG: Attempting to serve file at: " << fullPath << std::endl;
 	  	
 	if (stat(fullPath.c_str(), &buffer) != 0) 
