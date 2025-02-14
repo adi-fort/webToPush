@@ -6,6 +6,7 @@
 #include "RequestHandler.hpp"
 
 #include <iostream>
+#include <set>
 #include <fstream>
 #include <sstream>
 #include <cstring>
@@ -338,7 +339,6 @@ void Server::parseBody(HttpRequest& request, std::vector<unsigned char>& body)
 
 void Server::run() 
 {
-    	std::cout << "🔄 Entering Server::run()..." << std::endl;
 
 	
 	struct pollfd fds[100];
@@ -354,8 +354,6 @@ void Server::run()
 		nfds = server_fds.size();
 
 	fds[0].events = POLLIN;
-
-    	std::cout << "Server is running and listening on port " << _port << std::endl;
 
     	while (true) 
     	{
@@ -408,12 +406,14 @@ void Server::run()
                     			std::string method, path, protocol;
                     
 					request_stream >> method >> path >> protocol;
-
-                    			HttpRequest request;
+				
+						
+					HttpRequest request;
                     			request.method = method;
                     			request.path = path;
                     			request.protocol = protocol;
                     			request.host = extractHost(request_string);
+						
 
                     			std::istringstream header_stream(request_string.substr(0, request_string.find("\r\n\r\n")));
                     			parseHeaders(request, header_stream);
@@ -464,7 +464,12 @@ void Server::run()
 			
                     			if (server_configs.find(request.host) == server_configs.end()) 
                     			{
-                        			std::string response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
+                        			std::cerr << "Error: No server found for host: " << request.host << std::endl;
+    						std::cerr << "Available hosts:" << std::endl;
+    						for (const auto& entry : server_configs)
+        						std::cerr << "   - " << entry.first << std::endl;
+
+						std::string response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
                         			send(fds[i].fd, response.c_str(), response.length(), 0);
                         				continue;
                     			}

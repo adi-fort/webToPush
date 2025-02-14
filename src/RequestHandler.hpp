@@ -26,6 +26,8 @@ class RequestHandler
 		
 		std::string 	decodeUrl(const std::string& url);
 
+		std::string	generateErrorResponse(int errorCode);
+
 		std::string 	handleDeleteAllRequest(const HttpRequest& request);
 
 		const ServerConfig* findServerConfig(const std::string& host, int port) const;
@@ -44,7 +46,6 @@ class RequestHandler
     
 		std::string 	handleCgiRequest(const HttpRequest& request);   		
 	
-		std::string	generateErrorResponse(int errorCode);
 		
 		std::string 	handleUploadRequest(int client_fd, const HttpRequest& request);
 		

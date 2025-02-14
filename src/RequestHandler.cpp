@@ -107,8 +107,13 @@ std::string RequestHandler::handleRequest(const HttpRequest& request, int client
             		}
         	}
     	}
-    	
-	if (request.path == "/upload" && request.method == "POST") 
+	if (request.method != "GET" && request.method != "POST" && request.method != "DELETE")
+		response = serveStaticFile("/403.html");
+	if (request.method == "POST" && request.body.size() > 10 * 1024 * 1024) 
+	{
+    		response = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+	}
+	else if (request.path == "/upload" && request.method == "POST") 
 	{
         	response = handleUploadRequest(client_fd, request);
 	}
@@ -589,7 +594,8 @@ std::string RequestHandler::serveStaticFile(const std::string& path)
 	if (stat(fullPath.c_str(), &buffer) != 0) 
 	{
         	std::cerr << "ERROR: File not found: " << fullPath << std::endl;
-        	return "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
+        	return (generateErrorResponse(404));
+		//return "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
     	}
 
 	std::ifstream file(fullPath, std::ios::binary);

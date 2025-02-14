@@ -54,9 +54,13 @@ void ConfigParser::parseServerBlock(const std::vector<std::string>& lines, size_
             iss >> server.port;
         else if (key == "server_name")
             iss >> server.server_name;
-        else if (key == "client_body_size")
-            iss >> server.client_body_size;
-        else if (key == "error_page") 
+        else if (key == "client_body_size") {
+    std::string value;
+    iss >> value;
+    server.client_body_size = std::stoul(value);
+}
+
+	else if (key == "error_page") 
 	{
             int code;
             std::string path;
