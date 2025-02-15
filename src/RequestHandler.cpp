@@ -81,7 +81,7 @@ std::string RequestHandler::handleRequest(const HttpRequest& request, int client
 	if (request.path.empty()) 
         	return generateErrorResponse(500);
 
-    	//
+    	
 	const RouteConfig* routeConfig = findRouteConfig(*serverConfig, request.path);
 
     	if (routeConfig) 
@@ -93,8 +93,9 @@ std::string RequestHandler::handleRequest(const HttpRequest& request, int client
                    	"Content-Length: 0\r\n\r\n";
         	}
     	}	
-	//	
+		
 	std::string response;
+
 	
 	if (request.method == "POST" && request.headers.find("Content-Type") != request.headers.end()) 
     	{
@@ -107,15 +108,18 @@ std::string RequestHandler::handleRequest(const HttpRequest& request, int client
             		}
         	}
     	}
-	if (request.method != "GET" && request.method != "POST" && request.method != "DELETE")
-		response = serveStaticFile("/403.html");
 	if (request.method == "POST" && request.body.size() > 10 * 1024 * 1024) 
 	{
-    		response = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+    		std::cout << "DEBUG: Body too large! Rejecting request." << std::endl;
+		response = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+	}
+	if (request.method != "GET" && request.method != "POST" && request.method != "DELETE")
+	{
+		response = generateErrorResponse(403);
 	}
 	else if (request.path == "/upload" && request.method == "POST") 
-	{
-        	response = handleUploadRequest(client_fd, request);
+	{	
+		response = handleUploadRequest(client_fd, request);
 	}
 	else if (request.path == "/upload.html" && request.method == "GET") 
 	{
@@ -638,9 +642,13 @@ std::string RequestHandler::generateErrorResponse(int errorCode)
 	{
         	file_path = "static/500.html";
     	} 
-	else 
+	else if (errorCode == 403)
 	{
-        	return "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 21\r\n\r\n500 Internal Server Error";
+        	file_path = "static/403.html";
+	}
+	else
+	{
+        	return "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 25\r\n\r\n500 Internal Server Error";
     	}
 
     	std::ifstream file(file_path.c_str());

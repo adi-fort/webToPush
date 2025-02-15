@@ -144,10 +144,19 @@ Server::Server(const std::string& configFile)
             		host = "127.0.0.1";
 
         	_port = server.port;
-        	std::string key = host + ":" + std::to_string(_port);
-        	server_configs[key] = server;
+        //	std::string key = host + ":" + std::to_string(_port);
+        //	server_configs[key] = server;
+		std::string key = server.server_name + ":" + std::to_string(server.port);
+		server_configs[key] = server;
+		server_configs[host + ":" + std::to_string(server.port)] = server;
+//
+		for (const auto& entry : server_configs) 
+		{
+    			std::cout << "Mapped host: " << entry.first << std::endl;
+		}
+	        
 
-	        int server_fd = socket(AF_INET, SOCK_STREAM, 0);
+		int server_fd = socket(AF_INET, SOCK_STREAM, 0);
         	if (server_fd == -1) 
         	{
             		std::cerr << "ERROR: socket() failed for " << host << ":" << _port << std::endl;
@@ -413,8 +422,9 @@ void Server::run()
                     			request.path = path;
                     			request.protocol = protocol;
                     			request.host = extractHost(request_string);
-						
-
+					std::cout << "DEBUG: Received Host header: " << request.host << std::endl;
+					
+	
                     			std::istringstream header_stream(request_string.substr(0, request_string.find("\r\n\r\n")));
                     			parseHeaders(request, header_stream);
 			
